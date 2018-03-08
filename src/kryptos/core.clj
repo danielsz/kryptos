@@ -26,7 +26,9 @@
 
 (defprotocol Baze64
   (encode-base64 [x])
+  (encode-base64-without-padding [x])
   (encode-base64-url [x])
+  (encode-base64-url-without-padding [x])
   (decode-base64 [s target])
   (decode-base64-url [s]))
 
@@ -38,6 +40,8 @@
     (-> (Base64/getEncoder) .withoutPadding (.encodeToString (.getBytes s))))
   (encode-base64-url [s]
     (.encodeToString (Base64/getUrlEncoder) (.getBytes s)))
+  (encode-base64-url-without-padding [s]
+    (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString (.getBytes s))))
   (decode-base64 [s target]
     (case target
       :string (String. (.decode (Base64/getDecoder) s) "UTF-8")
