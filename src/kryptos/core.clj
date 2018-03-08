@@ -34,6 +34,8 @@
   Baze64
   (encode-base64 [s]
     (.encodeToString (Base64/getEncoder) (.getBytes s)))
+  (encode-base64-without-padding [s]
+    (-> (Base64/getEncoder) .withoutPadding (.encodeToString (.getBytes s))))
   (encode-base64-url [s]
     (.encodeToString (Base64/getUrlEncoder) (.getBytes s)))
   (decode-base64 [s target]
