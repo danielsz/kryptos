@@ -1,5 +1,5 @@
 (ns kryptos.core
-  (:require [pandect.algo.sha256 :refer :all]
+  (:require [pandect.algo.sha256 :refer [sha256-hmac]]
             [digest])
   (:import javax.crypto.Cipher
            javax.crypto.spec.SecretKeySpec
@@ -55,3 +55,7 @@
   Baze64
   (encode-base64 [key]
     (.encodeToString (Base64/getEncoder) (.getEncoded key))))
+
+(defn new-telefunken-key []
+  (let [key (generate-symmetric-key)]
+    (encode-base64 key)))
