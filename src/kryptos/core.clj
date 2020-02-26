@@ -1,10 +1,10 @@
 (ns kryptos.core
   (:require [pandect.algo.sha256 :refer [sha256-hmac]]
             [digest])
-  (:import javax.crypto.Cipher
-           javax.crypto.spec.SecretKeySpec
+  (:import javax.crypto.spec.SecretKeySpec
            javax.crypto.KeyGenerator
-           java.util.Base64))
+           java.util.Base64
+           java.security.MessageDigest))
 
 (defn digest [xs]
   (digest/md5 (apply str (sort xs))))
@@ -59,3 +59,12 @@
 (defn new-telefunken-key []
   (let [key (generate-symmetric-key)]
     (encode-base64 key)))
+
+(defn hash-dgst
+  "Sun implementation. s is string, algo is SHA-224, SHA-256, etc."
+  [s algo]
+  (let [md (MessageDigest/getInstance algo)
+        message-digest (.digest md (.getBytes s))
+        no (BigInteger. 1 message-digest)
+        hashtext (.toString no 16)]
+    (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s))))
