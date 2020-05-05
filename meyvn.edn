@@ -1,7 +1,7 @@
 {:pom
  {:group-id "org.danielsz",
   :artifact-id "kryptos",
-  :version "0.1.2",
+  :version "0.1.3",
   :name "kryptos"},
  :packaging
  {:uberjar
@@ -38,9 +38,9 @@
  :testing {:enabled false, :tools-deps-alias :test},
  :scm {:enabled true},
  :interactive
- {:enabled false,
+ {:enabled true,
   :tools-deps-alias :repl,
-  :repl-port 4009,
+  :repl-port :auto,
   :repl-host "127.0.0.1",
   :system
   {:enabled false,
