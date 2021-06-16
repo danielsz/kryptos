@@ -1,5 +1,5 @@
 (ns kryptos.core
-  (:require [pandect.algo.sha256 :refer [sha256-hmac]]
+  (:require [pandect.algo.sha256 :refer [sha256-hmac sha256-hmac-bytes]]
             [digest])
   (:import javax.crypto.spec.SecretKeySpec
            javax.crypto.KeyGenerator
@@ -25,6 +25,15 @@
 
 (defn verify-hmac [key data hmac]
   (= hmac (sign key data)))
+
+(defmulti sign-bytes (fn [key data] (type key)))
+(defmethod sign-bytes javax.crypto.spec.SecretKeySpec [key data]
+  (sha256-hmac-bytes data (.getEncoded key)))
+(defmethod sign-bytes java.lang.String [key data]
+  (sha256-hmac-bytes data key))
+
+(defn verify-hmac-bytes [key data hmac]
+  (= (seq hmac) (seq (sign-bytes key data))))
 
 (defprotocol Baze64
   (encode-base64 [x])
@@ -58,6 +67,11 @@
   (encode-base64 [key]
     (.encodeToString (Base64/getEncoder) (.getEncoded key))))
 
+(extend-type (Class/forName "[B")
+  Baze64
+  (decode-base64-url [b]
+    (.decode (Base64/getUrlDecoder) b)))
+
 (defn new-telefunken-key []
   (let [key (generate-symmetric-key)]
     (encode-base64 key)))
@@ -72,7 +86,7 @@
     (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s))))
 
 (defn pem-string->public-key [s]
-  (let [encoded (.decode (java.util.Base64/getDecoder) s)
+  (let [encoded (.decode (Base64/getDecoder) s)
         kf (KeyFactory/getInstance "RSA")
         key-spec (X509EncodedKeySpec. encoded)]
     (.generatePublic kf key-spec)))
