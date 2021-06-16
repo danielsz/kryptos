@@ -1,7 +1,7 @@
 {:pom
  {:group-id "org.danielsz",
   :artifact-id "kryptos",
-  :version "0.1.4",
+  :version "0.1.5",
   :name "kryptos"},
  :packaging
  {:uberjar
