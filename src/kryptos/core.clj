@@ -4,7 +4,9 @@
   (:import javax.crypto.spec.SecretKeySpec
            javax.crypto.KeyGenerator
            java.util.Base64
-           java.security.MessageDigest))
+           java.security.MessageDigest
+           java.security.spec.X509EncodedKeySpec
+           java.security.KeyFactory))
 
 (defn digest [xs]
   (digest/md5 (apply str (sort xs))))
@@ -68,3 +70,9 @@
         no (BigInteger. 1 message-digest)
         hashtext (.toString no 16)]
     (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s))))
+
+(defn pem-string->public-key [s]
+  (let [encoded (.decode (java.util.Base64/getDecoder) s)
+        kf (KeyFactory/getInstance "RSA")
+        key-spec (X509EncodedKeySpec. encoded)]
+    (.generatePublic kf key-spec)))
