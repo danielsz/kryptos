@@ -69,21 +69,34 @@
 
 (extend-type (Class/forName "[B")
   Baze64
-  (decode-base64-url [b]
-    (.decode (Base64/getUrlDecoder) b)))
+  (decode-base64-url [bytes]
+    (.decode (Base64/getUrlDecoder) bytes))
+  (encode-base64 [bytes]
+    (.encodeToString (Base64/getEncoder) bytes))
+  (encode-base64-without-padding [bytes]
+    (-> (Base64/getEncoder) .withoutPadding (.encodeToString bytes)))
+  (encode-base64-url [bytes]
+    (.encodeToString (Base64/getUrlEncoder) bytes))
+  (encode-base64-url-without-padding [bytes]
+    (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString bytes))))
 
 (defn new-telefunken-key []
   (let [key (generate-symmetric-key)]
     (encode-base64 key)))
 
 (defn hash-dgst
-  "Sun implementation. s is string, algo is SHA-224, SHA-256, etc."
-  [s algo]
-  (let [md (MessageDigest/getInstance algo)
-        message-digest (.digest md (.getBytes s))
-        no (BigInteger. 1 message-digest)
-        hashtext (.toString no 16)]
-    (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s))))
+  "Single arity is suitable for PKCE code challenge, next signature is Sun implementation where s is string, algo is SHA-224, SHA-256, etc."
+  ([bytes]
+   (let [md (MessageDigest/getInstance "SHA-256")]
+     (.update md bytes 0 (alength bytes))
+     (.digest md)))
+  ([s algo]
+   (let [md (MessageDigest/getInstance algo)
+         message-digest (.digest md (.getBytes s))
+         no (BigInteger. 1 message-digest)
+         hashtext (.toString no 16)]
+     (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s)))))
+
 
 (defn pem-string->public-key [s]
   (let [encoded (.decode (Base64/getDecoder) s)
