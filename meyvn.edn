@@ -7,9 +7,6 @@
  {:uberjar
   {:enabled false,
    :main-class "main.core",
-   :remote-repository
-   {:id "ssh-repository",
-    :url "scpexe://user@domain:/home/.m2/repository"},
    :excludes
    {:artifacts ["org.clojure:google-closure-library"],
     :filters
