@@ -1,8 +1,10 @@
 {:pom
  {:group-id "org.danielsz",
   :artifact-id "kryptos",
-  :version "0.1.7",
-  :name "kryptos"},
+  :version "0.1.8",
+  :name "kryptos"
+  :licenses [{:name "Eclipse Public License -v 1.0"
+              :url "https://opensource.org/license/epl-1-0/"}]},
  :packaging
  {:uberjar
   {:enabled false,
