@@ -1,21 +1,45 @@
 (ns kryptos.jwt
   (:require [kryptos.core :as crypto]
             [clojure.string :as str]
-            [clojure.data.json :as json]
-            [detijd.predicates :as time])
-  (:import [java.net URL]))
+            [clojure.data.json :as json])
+  (:import [java.security MessageDigest]
+           [java.time Instant]
+           [java.net URI]
+           [clojure.lang ExceptionInfo]))
+
+(defn- token-segments
+  "Splits a token into its 3 raw (still base64url-encoded) segments.
+   Throws ex-info {:type :malformed-token} if there aren't exactly 3."
+  [token]
+  (let [parts (str/split (str token) #"\.")]
+    (when-not (= 3 (count parts))
+      (throw (ex-info "Malformed token: expected header.claims.signature"
+                       {:type :malformed-token :segment-count (count parts)})))
+    parts))
 
 (defn decode-jwt [token]
-  (map #(crypto/decode-base64-url %) (str/split token #"\.")))
+  (try
+    (mapv crypto/decode-base64-url (token-segments token))
+    (catch clojure.lang.ExceptionInfo e (throw e))
+    (catch Exception e
+      (throw (ex-info "Malformed token: invalid base64url segment"
+                       {:type :malformed-token} e)))))
+
+(defn- parse-json [s]
+  (try
+    (json/read-str s :key-fn keyword)
+    (catch Exception e
+      (throw (ex-info "Malformed token: invalid JSON segment"
+                      {:type :malformed-token} e)))))
 
 (defn headers [token]
   (let [[headers _ _] (decode-jwt token)]
-    (json/read-str headers :key-fn keyword)))
+    (parse-json headers)))
 
 (defn claims
   ([token]
    (let [[_ claims _] (decode-jwt token)]
-     (json/read-str claims :key-fn keyword)))
+     (parse-json claims)))
   ([token k]
     (k (claims token))))
 
@@ -23,44 +47,48 @@
   (let [[_ _ sig] (decode-jwt token)]
     sig))
 
-(defn expired? [token]
-  (let [exp (claims token :exp)]
-    (time/in-past? exp)))
+(defn valid-audience? [aud client]
+  (if (sequential? aud) (contains? (set aud) client) (= client aud)))
 
-(def not-expired? (complement expired?))
-
-(defn valid-client? [token client]
-  (let [aud (claims token :aud)]
-    (= client aud)))
-
-(defn jwt-io [token secret]
-  (let [[header claims _] (str/split token #"\.")]
-    (crypto/encode-base64-url-without-padding (crypto/sign-bytes secret
-                                                                 (.getBytes (str header "." claims))))))
+(defn compute-signature [header claims secret]
+  (crypto/encode-base64-url-without-padding (crypto/sign-bytes secret
+                                                               (.getBytes (str header "." claims)))))
 
 (defn valid-signature? [token secret]
-  (let [[_ _ sig] (str/split token #"\.")]
-    (= sig (jwt-io token secret))))
+  (let [[header claims sig]  (token-segments token)]
+    (MessageDigest/isEqual (.getBytes ^String sig) (.getBytes ^String (compute-signature header claims secret)))))
 
-(defn valid-nbf? [token] ;; clock-tolerance is 20 seconds
-  (let [nbf (claims token :nbf)]
-    (< (- nbf (.getEpochSecond (java.time.Instant/now))) 20)))
+(defn valid-nbf? [nbf & {:keys [clock-tolerance] :or {clock-tolerance 20}}]
+  (< (- nbf (.getEpochSecond (java.time.Instant/now))) clock-tolerance))
 
-(defn valid-token? [token client secret]
-  (let [claims (claims token)
-        host (fn [url] (.getHost (URL. url)))]
-    (and (not-expired? token)
-         (valid-client? token client)
-         (valid-nbf? token)
-         (= (host (:dest claims)) (host (:iss claims)))
-         (valid-signature? token secret))))
+
+(defn- safe-host
+  "Host of a URL string, or nil if it's missing or unparseable — never throws."
+  [url-str]
+  (when url-str
+    (try (.getHost (URI. url-str))
+         (catch Exception _))))
+
+
+(defn checks [token client secret]
+  (try (let [c (claims token)
+             dest (safe-host (:dest c))
+             iss  (safe-host (:iss c))]
+         {:not-expired?     (if-let [exp (:exp c)]
+                              (> exp (.getEpochSecond (Instant/now)))
+                              true)
+          :valid-nbf?       (if-let [nbf (:nbf c)]
+                              (valid-nbf? nbf)
+                              true)
+          :valid-audience?  (valid-audience? (:aud c) client)
+          :valid-dest?      (boolean (and dest iss (= dest iss)))
+          :valid-signature? (valid-signature? token secret)})
+       (catch ExceptionInfo e {:validity false :error (ex-data e)})
+       (catch Exception e {:validity false :error (.getMessage e)})))
+
+ (defn valid-token? [token client secret]
+   (every? true? (vals (checks token client secret))))
 
 (defn debug-token [token client secret]
-  (let [claims (claims token)
-        host (fn [url] (.getHost (URL. url)))]
-    {:expired? (expired? token)
-     :valid-client? (valid-client? token client)
-     :valid-nbf? (valid-nbf? token)
-     :host-and-destination (= (host (:dest claims)) (host (:iss claims)))
-     :valid-signature? (valid-signature? token secret)
-     :nbf (- (:nbf claims) (.getEpochSecond (java.time.Instant/now)))}))
+     (checks token client secret))
+
