@@ -20,7 +20,7 @@
 (defn decode-jwt [token]
   (try
     (mapv crypto/decode-base64-url (token-segments token))
-    (catch clojure.lang.ExceptionInfo e (throw e))
+    (catch ExceptionInfo e (throw e))
     (catch Exception e
       (throw (ex-info "Malformed token: invalid base64url segment"
                        {:type :malformed-token} e)))))
