@@ -1,6 +1,6 @@
 (ns kryptos.core
   (:require [pandect.algo.sha256 :refer [sha256-hmac sha256-hmac-bytes]]
-            [kryptos.helpers :refer [string->utf8-bytes]])
+            [kryptos.helpers :refer [string->utf8-bytes bytes->hex]])
   (:import javax.crypto.spec.SecretKeySpec
            java.util.Base64
            java.security.MessageDigest
@@ -103,7 +103,11 @@
     (.decode (Base64/getUrlDecoder) bytes)))
 
 (defn hash-dgst
-  "Single arity is suitable for PKCE code challenge, next signature is Sun implementation where s is string, algo is SHA-224, SHA-256, etc."
+  "Single arity returns the raw SHA-256 digest, suitable for a PKCE code challenge.
+
+  The 2-arity is legacy: it uses the platform default charset, drops leading zero
+  bytes via BigInteger, and pads to only 32 characters, so its output is not
+  fixed-width for SHA-224/SHA-256/etc. Prefer `hash-digest-hex` for new code."
   ([bytes]
    (let [md (MessageDigest/getInstance "SHA-256")]
      (.update md bytes 0 (alength bytes))
@@ -115,6 +119,12 @@
          hashtext (.toString no 16)]
      (loop [s hashtext] (if  (< (.length s) 32) (recur (str "0" s)) s)))))
 
+(defn hash-digest-hex
+  "Returns the lowercase hex digest of `s` using `algo` (e.g. \"SHA-256\"),
+  zero-padded to twice the digest length. Strings are encoded as UTF-8."
+  [s algo]
+  (let [md (MessageDigest/getInstance algo)]
+    (bytes->hex (.digest md (string->utf8-bytes s)))))
 
 (defn pem-string->public-key [s]
   (let [encoded (.decode (Base64/getDecoder) s)

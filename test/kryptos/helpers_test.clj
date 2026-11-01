@@ -21,6 +21,16 @@
   (testing "empty"
     (is (zero? (alength (h/string->utf8-bytes ""))))))
 
+(deftest bytes->hex-test
+  (testing "empty"
+    (is (= "" (h/bytes->hex (byte-array 0)))))
+  (testing "leading zero and high bytes"
+    (is (= "00010f10ff" (h/bytes->hex (byte-array [0 1 15 16 -1])))))
+  (testing "ASCII"
+    (is (= "616263" (h/bytes->hex (.getBytes "abc" StandardCharsets/UTF_8)))))
+  (testing "non-ASCII"
+    (is (= "c3a9" (h/bytes->hex (.getBytes "é" StandardCharsets/UTF_8))))))
+
 (deftest ->byte-array-accepted-test
   (testing "nil"
     (is (nil? (h/->byte-array nil))))

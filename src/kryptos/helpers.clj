@@ -7,6 +7,12 @@
   ^bytes [^String s]
   (.getBytes s StandardCharsets/UTF_8))
 
+(defn bytes->hex
+  "Returns the lowercase, zero-padded hex representation of byte array `bs`
+  (two characters per byte)."
+  ^String [^bytes bs]
+  (apply str (map #(format "%02x" (bit-and (long %) 0xff)) bs)))
+
 (defn- octet
   "Coerces an integral `v` in -128..255 to a signed byte.
        Accepts signed-byte (-128..-1) and unsigned-octet (0..255) values.  

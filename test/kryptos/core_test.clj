@@ -26,6 +26,29 @@
     (is (not= (crypto/sign secret data)
               (crypto/sign "other" data)))))
 
+(deftest hash-dgst-test
+  (testing "1-arity returns raw SHA-256 bytes (PKCE, RFC 7636 example)"
+    (let [verifier  "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+          challenge (->> (.getBytes verifier StandardCharsets/US_ASCII)
+                         crypto/hash-dgst
+                         crypto/encode-base64-url-without-padding)]
+      (is (= "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" challenge))))
+  (testing "legacy 2-arity keeps its variable-width output"
+    (is (= "328ce57bbc14b33bd6695bc8eb32cdf2fb5f3a7d89ec14a42825e15d39df60"
+           (crypto/hash-dgst "286" "SHA-256")))))
+
+(deftest hash-digest-hex-test
+  (testing "known SHA-256"
+    (is (= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+           (crypto/hash-digest-hex "abc" "SHA-256"))))
+  (testing "zero-padded to full width"
+    (let [hex (crypto/hash-digest-hex "286" "SHA-256")]
+      (is (= 64 (count hex)))
+      (is (.startsWith ^String hex "0032"))))
+  (testing "width per algorithm"
+    (is (= 40 (count (crypto/hash-digest-hex "x" "SHA-1"))))
+    (is (= 128 (count (crypto/hash-digest-hex "x" "SHA-512"))))))
+
 (deftest verify-hmac-test
   (let [hex (crypto/sign secret data)]
     (is (true? (crypto/verify-hmac secret data hex)))
