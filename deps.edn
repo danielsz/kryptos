@@ -1,7 +1,6 @@
-{:deps {digest/digest {:mvn/version "1.4.10"}
-        pandect/pandect {:mvn/version "1.0.2"}
+{:deps {pandect/pandect {:mvn/version "1.0.2"}
         org.clojure/data.json {:mvn/version "2.5.2"}}
- :aliases {:repl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}
-                               cider/cider-nrepl {:mvn/version "0.62.2"}
+ :aliases {:repl {:extra-deps {nrepl/nrepl {:mvn/version "1.8.0"}
+                               cider/cider-nrepl {:mvn/version "0.64.0"}
                                org.meyvn/nrepl-middleware {:mvn/version "1.4.0"}
-                               org.danielsz/system {:mvn/version "0.5.7"}}}}}
+                               org.danielsz/system {:mvn/version "0.5.8"}}}}}

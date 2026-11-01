@@ -1,76 +1,77 @@
 (ns kryptos.core
   (:require [pandect.algo.sha256 :refer [sha256-hmac sha256-hmac-bytes]]
-            [digest])
+            [kryptos.helpers :refer [string->utf8-bytes]])
   (:import javax.crypto.spec.SecretKeySpec
-           javax.crypto.KeyGenerator
            java.util.Base64
            java.security.MessageDigest
            java.security.spec.X509EncodedKeySpec
-           java.security.KeyFactory))
+           java.security.KeyFactory
+           javax.crypto.KeyGenerator))
 
-(defn digest [xs]
-  (digest/md5 (apply str (sort xs))))
+(defprotocol Signer
+  (sign [key data])
+  (sign-bytes [key data]))
 
-(defn generate-symmetric-key []
-  (let [generator (KeyGenerator/getInstance "HmacSHA256")]
-    (.generateKey generator)))
+(extend-protocol Signer
+  javax.crypto.spec.SecretKeySpec
+  (sign [key data]       (sha256-hmac data (.getEncoded key)))
+  (sign-bytes [key data] (sha256-hmac-bytes data (.getEncoded key)))
 
-;; one-way hash
+  String
+  (sign [key data]       (sha256-hmac data key))
+  (sign-bytes [key data] (sha256-hmac-bytes data key))
 
-(defmulti sign (fn [key data] (type key)))
-(defmethod sign javax.crypto.spec.SecretKeySpec [key data]
-  (sha256-hmac data (.getEncoded key)))
-(defmethod sign java.lang.String [key data]
-  (sha256-hmac data key))
+  byte/1
+  (sign [key data]       (sha256-hmac data key))
+  (sign-bytes [key data] (sha256-hmac-bytes data key)))
 
 (defn verify-hmac [key data hmac]
   (= hmac (sign key data)))
 
-(defmulti sign-bytes (fn [key data] (type key)))
-(defmethod sign-bytes javax.crypto.spec.SecretKeySpec [key data]
-  (sha256-hmac-bytes data (.getEncoded key)))
-(defmethod sign-bytes java.lang.String [key data]
-  (sha256-hmac-bytes data key))
+(defn verify-hmac-constant-time [key data hmac]
+  (let [expected (string->utf8-bytes (sign key data))
+        supplied (string->utf8-bytes (str hmac))]
+    (MessageDigest/isEqual expected supplied)))
 
 (defn verify-hmac-bytes [key data hmac]
-  (= (seq hmac) (seq (sign-bytes key data))))
+  (let [^bytes expected (sign-bytes key data)]
+    (if (bytes? hmac)
+      (let [^bytes supplied hmac]
+        (MessageDigest/isEqual supplied expected))
+      (= (seq hmac) (seq expected)))))
 
-(defprotocol Baze64
+(defprotocol Base64Encode
   (encode-base64 [x])
   (encode-base64-without-padding [x])
   (encode-base64-url [x])
-  (encode-base64-url-without-padding [x])
+  (encode-base64-url-without-padding [x]))
+
+(defprotocol Base64Decode
   (decode-base64 [s target])
   (decode-base64-url [s]))
 
-(extend-type String
-  Baze64
+(extend-protocol Base64Encode
+  String
   (encode-base64 [s]
-    (.encodeToString (Base64/getEncoder) (.getBytes s)))
+    (.encodeToString (Base64/getEncoder) (string->utf8-bytes s)))
   (encode-base64-without-padding [s]
-    (-> (Base64/getEncoder) .withoutPadding (.encodeToString (.getBytes s))))
+    (-> (Base64/getEncoder) .withoutPadding (.encodeToString (string->utf8-bytes s))))
   (encode-base64-url [s]
-    (.encodeToString (Base64/getUrlEncoder) (.getBytes s)))
+    (.encodeToString (Base64/getUrlEncoder) (string->utf8-bytes s)))
   (encode-base64-url-without-padding [s]
-    (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString (.getBytes s))))
-  (decode-base64 [s target]
-    (case target
-      :string (String. (.decode (Base64/getDecoder) s) "UTF-8")
-      :key (let [bytes (.decode (Base64/getDecoder) s)]
-             (SecretKeySpec. bytes 0 (count bytes) "HmacSHA256"))
-      "no target given"))
-  (decode-base64-url [s]
-    (String. (.decode (Base64/getUrlDecoder) s) "UTF-8")))
+    (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString (string->utf8-bytes s))))
 
-(extend-type SecretKeySpec
-  Baze64
+  SecretKeySpec
   (encode-base64 [key]
-    (.encodeToString (Base64/getEncoder) (.getEncoded key))))
+    (.encodeToString (Base64/getEncoder) (.getEncoded key)))
+  (encode-base64-without-padding [key]
+    (-> (Base64/getEncoder) .withoutPadding (.encodeToString (.getEncoded key))))
+  (encode-base64-url [key]
+    (.encodeToString (Base64/getUrlEncoder) (.getEncoded key)))
+  (encode-base64-url-without-padding [key]
+    (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString (.getEncoded key))))
 
-(extend-type (Class/forName "[B")
-  Baze64
-  (decode-base64-url [bytes]
-    (.decode (Base64/getUrlDecoder) bytes))
+  byte/1
   (encode-base64 [bytes]
     (.encodeToString (Base64/getEncoder) bytes))
   (encode-base64-without-padding [bytes]
@@ -80,9 +81,26 @@
   (encode-base64-url-without-padding [bytes]
     (-> (Base64/getUrlEncoder) .withoutPadding (.encodeToString bytes))))
 
-(defn new-telefunken-key []
-  (let [key (generate-symmetric-key)]
-    (encode-base64 key)))
+(extend-protocol Base64Decode
+  String
+  (decode-base64 [s target]
+    (case target
+      :bytes  (.decode (Base64/getDecoder) s)
+      :string (String. ^bytes (.decode (Base64/getDecoder) s) "UTF-8")
+      :key    (let [^bytes bs (decode-base64 s :bytes)]
+                (SecretKeySpec. bs 0 (alength bs) "HmacSHA256"))))
+  (decode-base64-url [s]
+    (String. (.decode (Base64/getUrlDecoder) s) "UTF-8"))
+
+  byte/1
+  (decode-base64 [bytes target]
+    (case target
+      :bytes  (.decode (Base64/getDecoder) bytes)
+      :string (String. ^bytes (.decode (Base64/getDecoder) bytes) "UTF-8")
+      :key    (let [^bytes bs (decode-base64 bytes :bytes)]
+                (SecretKeySpec. bs 0 (alength bs) "HmacSHA256"))))
+  (decode-base64-url [bytes]
+    (.decode (Base64/getUrlDecoder) bytes)))
 
 (defn hash-dgst
   "Single arity is suitable for PKCE code challenge, next signature is Sun implementation where s is string, algo is SHA-224, SHA-256, etc."
@@ -103,3 +121,7 @@
         kf (KeyFactory/getInstance "RSA")
         key-spec (X509EncodedKeySpec. encoded)]
     (.generatePublic kf key-spec)))
+
+(defn generate-symmetric-key []
+  (let [generator (KeyGenerator/getInstance "HmacSHA256")]
+    (.generateKey generator)))

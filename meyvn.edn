@@ -1,7 +1,7 @@
 {:pom
  {:group-id "org.danielsz",
   :artifact-id "kryptos",
-  :version "0.1.9",
+  :version "0.2.0",
   :name "kryptos"
   :licenses [{:name "Eclipse Public License -v 1.0"
               :url "https://opensource.org/license/epl-1-0/"}]},
@@ -32,7 +32,7 @@
    :foreign-libs [],
    :main "main.core"},
   :tools-deps-alias :cljs},
- :testing {:enabled false, :tools-deps-alias :test},
+ :testing {:enabled true},
  :scm {:enabled true},
  :interactive
  {:enabled true,
