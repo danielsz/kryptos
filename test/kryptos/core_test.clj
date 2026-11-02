@@ -41,6 +41,12 @@
   (testing "known SHA-256"
     (is (= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
            (crypto/hash-digest-hex "abc" "SHA-256"))))
+  (testing "byte array arity uses SHA-256"
+    (is (= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+           (crypto/hash-digest-hex (.getBytes "abc" StandardCharsets/UTF_8)))))
+  (testing "byte array with explicit algorithm"
+    (is (= (crypto/hash-digest-hex "abc" "SHA-256")
+           (crypto/hash-digest-hex (.getBytes "abc" StandardCharsets/UTF_8) "SHA-256"))))
   (testing "zero-padded to full width"
     (let [hex (crypto/hash-digest-hex "286" "SHA-256")]
       (is (= 64 (count hex)))
@@ -53,13 +59,8 @@
   (let [hex (crypto/sign secret data)]
     (is (true? (crypto/verify-hmac secret data hex)))
     (is (false? (crypto/verify-hmac secret data (str hex "00"))))
+    (is (false? (crypto/verify-hmac secret data (apply str (reverse hex)))))
     (is (false? (crypto/verify-hmac secret data nil)))))
-
-(deftest verify-hmac-constant-time-test
-  (let [hex (crypto/sign secret data)]
-    (is (true? (crypto/verify-hmac-constant-time secret data hex)))
-    (is (false? (crypto/verify-hmac-constant-time secret data (str hex "00"))))
-    (is (false? (crypto/verify-hmac-constant-time secret data nil)))))
 
 (deftest verify-hmac-bytes-test
   (let [raw (crypto/sign-bytes secret data)]
@@ -68,7 +69,11 @@
       (is (true? (crypto/verify-hmac-bytes secret data (vec raw))))
       (is (true? (crypto/verify-hmac-bytes secret data (seq raw))))
       (is (true? (crypto/verify-hmac-bytes secret data
-                                           (int-array (map int raw))))))
+                                           (int-array (map int raw)))))
+      (is (true? (crypto/verify-hmac-bytes secret data
+                                           (long-array (map long raw)))))
+      (is (true? (crypto/verify-hmac-bytes secret data
+                                           (into-array Byte (map byte raw))))))
     (testing "representations that never match under legacy semantics"
       (is (false? (crypto/verify-hmac-bytes
                    secret data
@@ -78,7 +83,9 @@
                    (String. raw StandardCharsets/UTF_8))))
       (is (false? (crypto/verify-hmac-bytes secret data nil)))
       (is (false? (crypto/verify-hmac-bytes
-                   secret data (cons 0 (seq raw))))))))
+                   secret data (cons 0 (seq raw)))))
+      (is (false? (crypto/verify-hmac-bytes
+                   secret data [(bigint "999999999999999999999999999")]))))))
 
 (deftest string-base64-test
   (testing "standard alphabet"
@@ -100,7 +107,17 @@
       (is (instance? SecretKeySpec k))
       (is (Arrays/equals (.getBytes "hello" StandardCharsets/UTF_8)
                          (.getEncoded k))))
-    (is (= "hello" (crypto/decode-base64-url "aGVsbG8=")))))
+    (is (= "hello" (crypto/decode-base64-url "aGVsbG8=")))
+    (is (= "hello" (crypto/decode-base64-url "aGVsbG8=" :string)))
+    (is (= [1 2 3] (vec (crypto/decode-base64-url "AQID" :bytes))))
+    (is (= (vec (.getBytes "hello" StandardCharsets/UTF_8))
+           (vec (crypto/decode-base64-url "aGVsbG8" :bytes))))
+    (let [url-key (crypto/decode-base64-url "aGVsbG8" :key)]
+      (is (instance? SecretKeySpec url-key))
+      (is (Arrays/equals (.getBytes "hello" StandardCharsets/UTF_8)
+                         (.getEncoded url-key))))
+    (is (thrown? IllegalArgumentException
+                 (crypto/decode-base64-url "AQID" :bogus)))))
 
 (deftest secret-key-base64-test
   (let [k  (crypto/generate-symmetric-key)
@@ -123,8 +140,17 @@
       (is (= "AQID" (crypto/encode-base64-without-padding b)))
       (is (= "AQID" (crypto/encode-base64-url b)))
       (is (= "AQID" (crypto/encode-base64-url-without-padding b))))
-    (testing "decode-base64-url returns bytes"
-      (is (= [1 2 3] (vec (crypto/decode-base64-url encoded)))))
+    (testing "decode-base64-url"
+      (is (= [1 2 3] (vec (crypto/decode-base64-url encoded))))
+      (is (= [1 2 3] (vec (crypto/decode-base64-url encoded :bytes))))
+      (let [hello-b64 (.getBytes "aGVsbG8" StandardCharsets/UTF_8)
+            url-key   (crypto/decode-base64-url hello-b64 :key)]
+        (is (= "hello" (crypto/decode-base64-url hello-b64 :string)))
+        (is (instance? SecretKeySpec url-key))
+        (is (Arrays/equals (.getBytes "hello" StandardCharsets/UTF_8)
+                           (.getEncoded url-key))))
+      (is (thrown? IllegalArgumentException
+                   (crypto/decode-base64-url encoded :bogus))))
     (testing "decode-base64"
       (is (= [1 2 3] (vec (crypto/decode-base64 encoded :bytes))))
       (let [k (crypto/decode-base64 encoded :key)]

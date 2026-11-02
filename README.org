@@ -1,0 +1,197 @@
+#+TITLE: kryptos
+#+OPTIONS: toc:2 num:nil
+
+Kryptos is a small Clojure library for the cryptographic and encoding tasks
+that show up in web services: HMAC-SHA256 signing and verification, base64
+encoding and decoding, message digests, JWT inspection and validation, and
+parsing PEM public keys.
+
+It is a focused layer over the JVM's standard facilities (`java.security`,
+`javax.crypto`, `java.util.Base64`) and the =pandect= library for HMAC and
+digests. Kryptos does not implement cryptographic primitives itself; it wraps
+them with consistent representations, explicit string encoding, and defaults
+that fit server-side Clojure applications.
+
+* Installation
+
+#+BEGIN_SRC clojure
+;; deps.edn
+org.danielsz/kryptos {:mvn/version "0.2.0"}
+#+END_SRC
+
+* Namespaces
+
+| Namespace        | Purpose                                              |
+|------------------+------------------------------------------------------|
+| =kryptos.core=    | HMAC-SHA256, base64, message digests, key generation |
+| =kryptos.helpers= | UTF-8 and byte-array conversions                     |
+| =kryptos.jwt=     | JWT decoding and HS256 validation                    |
+| =kryptos.pem=     | PEM/SubjectPublicKeyInfo public-key parsing          |
+
+* Capabilities
+
+** HMAC-SHA256 signing
+
+Keys may be strings, byte arrays, or =javax.crypto.spec.SecretKeySpec=
+instances. Signatures are available as lowercase hex strings or raw bytes.
+
+#+BEGIN_SRC clojure
+(require '[kryptos.core :as crypto])
+
+(def key "s3cr3t")
+(def mac (crypto/sign key "payload"))          ; hex string
+(crypto/verify-hmac key "payload" mac)          ; => true
+(crypto/verify-hmac-bytes key "payload"
+                          (crypto/sign-bytes key "payload")) ; => true
+#+END_SRC
+
+=verify-hmac= compares hex strings in time independent of where they differ.
+=verify-hmac-bytes= compares byte arrays and seqable collections of byte values
+in constant time. 
+
+Signing keys can also be generated:
+
+#+BEGIN_SRC clojure
+(def key (crypto/generate-symmetric-key))       ; HmacSHA256 SecretKeySpec
+#+END_SRC
+
+** Base64
+
+Both standard and URL-safe alphabets are supported, with or without padding.
+Strings are encoded as UTF-8; decoding can produce bytes, text, or an
+HmacSHA256 key.
+
+#+BEGIN_SRC clojure
+(crypto/encode-base64 "hello")                     ; "aGVsbG8="
+(crypto/encode-base64-without-padding "hello")     ; "aGVsbG8"
+(crypto/encode-base64-url "hello")                 ; "aGVsbG8="
+(crypto/encode-base64-url-without-padding "hello") ; "aGVsbG8"
+
+(crypto/decode-base64 "aGVsbG8=" :string)          ; "hello"
+(crypto/decode-base64 "aGVsbG8=" :bytes)           ; byte[]
+(crypto/decode-base64 "aGVsbG8=" :key)             ; HmacSHA256 SecretKeySpec
+(crypto/decode-base64-url "aGVsbG8" :bytes)        ; byte[]
+(crypto/decode-base64-url "aGVsbG8=")              ; "hello"
+#+END_SRC
+
+Byte arrays and =SecretKeySpec= keys can also be encoded.
+
+** Byte and string helpers
+
+#+BEGIN_SRC clojure
+(require '[kryptos.helpers :as helpers])
+
+(helpers/string->utf8-bytes "héllo")             ; byte[]
+(helpers/bytes->hex (byte-array [0 1 255]))      ; "0001ff"
+(helpers/->byte-array "abc")                     ; UTF-8 bytes
+(helpers/->byte-array [255 0 127])               ; [-1 0 127]
+#+END_SRC
+
+=->byte-array= accepts =nil=, a byte array, a string, or a sequence of octets.
+Other values raise an =ex-info= carrying =:kryptos.helpers/not-bytes= or
+=:kryptos.helpers/not-octet=.
+
+** Message digests
+
+Fixed-width lowercase hex digests for any algorithm provided by the JVM:
+
+#+BEGIN_SRC clojure
+(crypto/hash-digest-hex "abc" "SHA-256")
+;; "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+(crypto/hash-digest-hex (.getBytes "abc" "UTF-8"))       ; SHA-256
+(crypto/hash-digest-hex (.getBytes "abc" "UTF-8") "SHA-512")
+#+END_SRC
+
+The one-arity hashes a byte array with SHA-256; the two-arity accepts a string
+(UTF-8) or byte array plus an algorithm name.
+
+=crypto/hash-dgst= returns the raw SHA-256 digest of a byte array, which is
+handy for OAuth 2 PKCE code challenges:
+
+#+BEGIN_SRC clojure
+(defn code-challenge [verifier]
+  (->> verifier
+       (.getBytes "US-ASCII")
+       crypto/hash-dgst
+       crypto/encode-base64-url-without-padding))
+#+END_SRC
+
+** JWT inspection and validation
+
+Kryptos decodes standard three-segment JWTs, exposes the header, claims, and
+signature, and validates HS256 tokens against a secret. Validation covers
+signature, expiration, not-before, audience, and the equality of =dest= and
+=iss= hosts.
+
+#+BEGIN_SRC clojure
+(require '[kryptos.jwt :as jwt])
+
+(jwt/headers token)
+(jwt/claims token)
+(jwt/claims token :exp)
+(jwt/signature token)                              ; byte[]
+
+(jwt/valid-signature? token secret)
+(jwt/valid-token? token client secret)
+(jwt/checks token client secret)                   ; map of individual checks
+(jwt/debug-token token client secret)              ; checks, including errors
+#+END_SRC
+
+Malformed tokens are reported rather than thrown from =checks=,
+=valid-token?=, and =debug-token=.
+
+** PEM public keys
+
+Public keys are parsed from armored PEM or bare base64. The algorithm is
+detected from the SubjectPublicKeyInfo structure, covering RSA, EC, DSA,
+Ed25519/Ed448, and X25519/X448 when the running JDK supports them.
+
+#+BEGIN_SRC clojure
+(require '[kryptos.pem :as pem])
+
+(def public-key (pem/pem-string->public-key (slurp "public.pem")))
+(.getAlgorithm public-key)                         ; e.g. "RSA"
+
+;; Or pin the algorithm:
+(pem/pem-string->public-key (slurp "public.pem") "RSA")
+#+END_SRC
+
+PKCS#1 RSA keys (=-----BEGIN RSA PUBLIC KEY-----=) are not supported; use
+SubjectPublicKeyInfo (=-----BEGIN PUBLIC KEY-----=).
+
+* Where this fits
+
+Kryptos targets the plumbing behind common web protocols:
+
+- *Webhook verification*: HMAC-SHA256 over request bodies, as used by Shopify
+  and BigCommerce. Use =verify-hmac-bytes= with the raw body bytes and the
+  decoded signature.
+- *Request and token signing*: HMAC tags over strings or bytes for
+  server-to-server calls and short-lived tokens.
+- *OAuth 2 PKCE*: raw SHA-256 digests encoded with URL-safe base64.
+- *Stateless sessions*: HS256 JWTs with signature, audience, expiration, and
+  issuer checks.
+- *Encoding boundaries*: base64 for headers and wire formats; UTF-8 byte
+  conversion at the edges.
+- *Key handling*: parsing public keys from configuration or files.
+
+The underlying operations are the JVM's own =MessageDigest=, =Mac= (via
+pandect), =Base64=, and =KeyFactory=. Kryptos is deliberately smaller than a
+general cryptography toolkit: it is not an encryption library, does not
+perform key exchange or certificate-chain validation, does not sign with
+asymmetric keys, and validates only HS256 JWTs.
+
+* Security notes
+
+- Base64 is an encoding, not encryption.
+- Hash functions are one-way; they do not provide confidentiality.
+- For attacker-supplied MACs, prefer =verify-hmac= (hex) or
+  =verify-hmac-bytes= (byte arrays or seqable byte collections).
+- The base64 encoders and =hash-digest-hex= encode strings as UTF-8. The
+  two-arity of =hash-dgst= is retained for compatibility and uses the platform
+  default charset.
+
+* License
+
+Copyright Daniel Szmulewicz. Distributed under the Eclipse Public License 1.0.
