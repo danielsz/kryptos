@@ -41,6 +41,3 @@
     (string? x) (string->utf8-bytes x)
     (sequential? x) (byte-array (map octet x))
     :else (throw (ex-info "Cannot coerce to byte[]; pass a byte[], String, or sequential of octets (-128..255)" {:type ::not-bytes :value x}))))
-
-
-
